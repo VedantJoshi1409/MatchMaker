@@ -6,6 +6,13 @@ public class BitMethods {
         return 1L << moveNum;
     }
 
+    public static int stringMoveToInt(String move) {
+        char letter = move.charAt(0);
+        int row = letter - 'a', column = 8 - Integer.parseInt(move.substring(1)), moveNum;
+        moveNum = column * 8 + row;
+        return moveNum;
+    }
+
     public static long stringToLong(String binary) {
         if (binary.charAt(0) == '0') {
             return Long.parseLong(binary, 2);

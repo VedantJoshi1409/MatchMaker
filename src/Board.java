@@ -2,7 +2,7 @@ import java.io.Serializable;
 
 import static java.lang.Character.isDigit;
 
-public class Board implements Serializable {
+public class Board {
     static final long wSKing = 4611686018427387904L, wLKing = 288230376151711744L;
     static final long wSRook = -6917529027641081856L, wLRook = 648518346341351424L;
     static final long bSKing = 64L, bLKing = 4L;
@@ -21,6 +21,7 @@ public class Board implements Serializable {
     long previousPawnPush; //For en passant
     long castleRights; //First digit is wShort castle, Second is wLong, and so on
     long zobristKey;
+    long pastMove;
     long startSquare, endSquare;
     long moveType; //000 first digit is 0 if reversible and 1 if not, second digit is 0 if not checking move and 1 if it is, third digit is for captures
     int mateFlag; //1 for checkmate, 2 for stalemate, 0 for nothing
@@ -30,6 +31,9 @@ public class Board implements Serializable {
     boolean wSMoved, wLMoved, bSMoved, bLMoved;
     boolean player;
     boolean endGame; //in endgame
+    int halfMoveClock; //for 50 move rule
+    int moveCount;
+    int pieceCount;
 
     public Board(String fen) {
         String[][] stringBoard = fenToBoard(fen);
@@ -39,7 +43,9 @@ public class Board implements Serializable {
         occupied = fOccupied | eOccupied;
         fillAttackMasks();
         updateCastleRights();
+        setPieceCount();
         zobristKey = Zobrist.generateKey(this);
+        pastMove = 0;
         startSquare = 0;
         endSquare = 0;
         moveType = 0;
@@ -49,7 +55,6 @@ public class Board implements Serializable {
         enemyKingInCheck = false;
         castleState = 0;
         endGame = false;
-
         //moveLog = new long[0];
     }
 
@@ -100,6 +105,13 @@ public class Board implements Serializable {
         this.bLMoved = board.bLMoved;
         this.player = !board.player;
         this.endGame = board.endGame;
+        this.halfMoveClock = board.halfMoveClock + 1;
+        this.pieceCount = board.pieceCount;
+        if (this.player) {
+            this.moveCount = board.moveCount + 1;
+        } else {
+            this.moveCount = board.moveCount;
+        }
 
         if (previousPawnPush != 0) {
             zobristKey ^= Zobrist.enPassantKeys[BitMethods.getLS1B(previousPawnPush)];
@@ -123,6 +135,7 @@ public class Board implements Serializable {
         long copy;
         int selectedSquareNum;
 
+        pastMove = move;
         long startSquareBit = 1L << startSquare;
         long endSquareBit = 1L << endSquare;
         long changingBits = startSquareBit | endSquareBit;
@@ -150,12 +163,16 @@ public class Board implements Serializable {
         eOccupied &= ~startSquareBit;
         eOccupied |= endSquareBit;
         if (capture == 1) {
+            halfMoveClock = 0;
             moveType = 1;
             fOccupied &= ~endSquareBit;
+            pieceCount--;
+            endGame = pieceCount <= 6;
         }
         occupied = eOccupied | fOccupied;
 
         if (piece == 0) {//pawn move
+            halfMoveClock = 0;
             ePawn &= ~startSquareBit; //enemy piece since all piece names get swapped on board copy
 
             //cant have a double push or promotion or enPassant at same time
@@ -461,6 +478,131 @@ public class Board implements Serializable {
         occupied = fOccupied | eOccupied;
     }
 
+    private void setPieceCount() {
+        int fPCount = BitMethods.countBits(fPawn);
+        int fNCount = BitMethods.countBits(fKnight);
+        int fRCount = BitMethods.countBits(fRook);
+        int fBCount = BitMethods.countBits(fBishop);
+        int fQCount = BitMethods.countBits(fQueen);
+        int ePCount = BitMethods.countBits(ePawn);
+        int eNCount = BitMethods.countBits(eKnight);
+        int eRCount = BitMethods.countBits(eRook);
+        int eBCount = BitMethods.countBits(eBishop);
+        int eQCount = BitMethods.countBits(eQueen);
+        pieceCount = fPCount + fNCount + fRCount + fBCount + fQCount + ePCount + eNCount + eRCount + eBCount + eQCount + 2;
+    }
+
+    private void initNNUEArrays() { //currently unsure about how to efficiently update these when making a move
+        /*int pieceTypeShift;
+        int currentPieceSquare;
+        pieces = new int[32];
+        squares = new int[32];
+        pieceCount = 0;
+
+        if (player) {
+            pieceTypeShift = 0;
+        } else {
+            pieceTypeShift = 8;
+        }
+
+        pieces[pieceCount] = 6+pieceTypeShift;
+        squares[pieceCount] = shiftSquares[BitMethods.getLS1B(fKing)];
+        pieceCount++;
+        pieces[pieceCount] = 14-pieceTypeShift;
+        squares[pieceCount] = shiftSquares[BitMethods.getLS1B(eKing)];
+        pieceCount++;
+
+        long temp = fQueen;
+        while (temp != 0) {
+            currentPieceSquare = BitMethods.getLS1B(temp);
+            temp &= ~(1L << currentPieceSquare);
+            pieces[pieceCount] = 5+pieceTypeShift;
+            squares[pieceCount] = shiftSquares[currentPieceSquare];
+            pieceCount++;
+        }
+
+        temp = eQueen;
+        while (temp != 0) {
+            currentPieceSquare = BitMethods.getLS1B(temp);
+            temp &= ~(1L << currentPieceSquare);
+            pieces[pieceCount] = 13-pieceTypeShift;
+            squares[pieceCount] = shiftSquares[currentPieceSquare];
+            pieceCount++;
+        }
+
+        temp = fRook;
+        while (temp != 0) {
+            currentPieceSquare = BitMethods.getLS1B(temp);
+            temp &= ~(1L << currentPieceSquare);
+            pieces[pieceCount] = 4+pieceTypeShift;
+            squares[pieceCount] = shiftSquares[currentPieceSquare];
+            pieceCount++;
+        }
+
+        temp = eRook;
+        while (temp != 0) {
+            currentPieceSquare = BitMethods.getLS1B(temp);
+            temp &= ~(1L << currentPieceSquare);
+            pieces[pieceCount] = 12-pieceTypeShift;
+            squares[pieceCount] = shiftSquares[currentPieceSquare];
+            pieceCount++;
+        }
+
+        temp = fBishop;
+        while (temp != 0) {
+            currentPieceSquare = BitMethods.getLS1B(temp);
+            temp &= ~(1L << currentPieceSquare);
+            pieces[pieceCount] = 3+pieceTypeShift;
+            squares[pieceCount] = shiftSquares[currentPieceSquare];
+            pieceCount++;
+        }
+
+        temp = eBishop;
+        while (temp != 0) {
+            currentPieceSquare = BitMethods.getLS1B(temp);
+            temp &= ~(1L << currentPieceSquare);
+            pieces[pieceCount] = 11-pieceTypeShift;
+            squares[pieceCount] = shiftSquares[currentPieceSquare];
+            pieceCount++;
+        }
+
+        temp = fKnight;
+        while (temp != 0) {
+            currentPieceSquare = BitMethods.getLS1B(temp);
+            temp &= ~(1L << currentPieceSquare);
+            pieces[pieceCount] = 2+pieceTypeShift;
+            squares[pieceCount] = shiftSquares[currentPieceSquare];
+            pieceCount++;
+        }
+
+        temp = eKnight;
+        while (temp != 0) {
+            currentPieceSquare = BitMethods.getLS1B(temp);
+            temp &= ~(1L << currentPieceSquare);
+            pieces[pieceCount] = 10-pieceTypeShift;
+            squares[pieceCount] = shiftSquares[currentPieceSquare];
+            pieceCount++;
+        }
+
+        temp = fPawn;
+        while (temp != 0) {
+            currentPieceSquare = BitMethods.getLS1B(temp);
+            temp &= ~(1L << currentPieceSquare);
+            pieces[pieceCount] = 1+pieceTypeShift;
+            squares[pieceCount] = shiftSquares[currentPieceSquare];
+            pieceCount++;
+        }
+
+        temp = ePawn;
+        while (temp != 0) {
+            currentPieceSquare = BitMethods.getLS1B(temp);
+            temp &= ~(1L << currentPieceSquare);
+            pieces[pieceCount] = 9-pieceTypeShift;
+            squares[pieceCount] = shiftSquares[currentPieceSquare];
+            pieceCount++;
+        }*/
+    }
+
     /*private String getMoves() {
         String output = "";
         for (int i = 0; i < moveLog.length; i++) {
@@ -643,9 +785,12 @@ public class Board implements Serializable {
                 row = 0;
             }
         }
+
         player = fen.charAt(end + 1) != 'b';
-        castle = fen.substring(end + 3);
+        end += 3;
+        castle = fen.substring(end);
         for (int i = 0; i < castle.length(); i++) {
+            end++;
             if (castle.charAt(i) == 'K') {
                 wSMoved = false;
             } else if (castle.charAt(i) == 'Q') {
@@ -654,19 +799,37 @@ public class Board implements Serializable {
                 bSMoved = false;
             } else if (castle.charAt(i) == 'q') {
                 bLMoved = false;
+            } else {
+                if (i == 0) {
+                    end++;
+                }
+                break;
             }
         }
-        if (fen.charAt(fen.length() - 1) == '-') {
+
+        if (fen.charAt(end) == '-') {
             previousPawnPush = 0L;
+            end += 2;
         } else {
-            pawnPush = fen.substring(fen.length() - 2);
+            pawnPush = fen.substring(end, end + 2);
             previousPawnPush = BitMethods.stringMoveToLong(pawnPush);
             if (player) {
                 previousPawnPush <<= 8;
             } else {
                 previousPawnPush >>= 8;
             }
+            end += 3;
         }
+
+        if (fen.length() > end) {
+            String[] moveClocks = fen.substring(end).split(" ");
+            halfMoveClock = Integer.parseInt(moveClocks[0]);
+            moveCount = Integer.parseInt(moveClocks[1]);
+        } else {
+            halfMoveClock = 0;
+            moveCount = 1;
+        }
+
         for (int i = 0; i < 8; i++) {
             for (int j = 0; j < 8; j++) {
                 if (tempBoard[i][j] == null) {
@@ -674,6 +837,7 @@ public class Board implements Serializable {
                 }
             }
         }
+
         return tempBoard;
     }
 
@@ -818,9 +982,9 @@ public class Board implements Serializable {
             if (rowCount != 0) {
                 row += rowCount;
             }
-            fen+=row;
+            fen += row;
             if (i != 7) {
-                fen+="/";
+                fen += "/";
             }
         }
         fen += " ";
@@ -853,11 +1017,12 @@ public class Board implements Serializable {
             fen += "-";
         } else {
             if (player) {
-                fen+= BitMethods.moveToStringMove(previousPawnPush>>8);
+                fen += BitMethods.moveToStringMove(previousPawnPush >> 8);
             } else {
-                fen += BitMethods.moveToStringMove(previousPawnPush<<8);
+                fen += BitMethods.moveToStringMove(previousPawnPush << 8);
             }
         }
+        fen += String.format(" %d %d", halfMoveClock, moveCount);
         return fen;
     }
 

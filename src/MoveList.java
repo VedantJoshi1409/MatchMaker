@@ -1,3 +1,5 @@
+import java.util.ArrayList;
+
 public class MoveList {
     static final long startSquare = 63L;
     static final long endSquare = 4032L;
@@ -96,7 +98,7 @@ public class MoveList {
         long[][] moveAndScore = new long[count][2];
         long move;
         int attacker;
-        int victim = -1;
+        int victim = 0;
         int capture;
         int score;
 
@@ -107,7 +109,7 @@ public class MoveList {
             attacker = getPiece(move);
             capture = getCaptureFlag(moves[i]);
             if (capture == 1) {
-                long endSquareBit = 1L<<getEndSquare(move);
+                long endSquareBit = 1L << getEndSquare(move);
 
                 if ((board.ePawn & endSquareBit) != 0) {
                     victim = 0;
@@ -141,16 +143,38 @@ public class MoveList {
         }
     }
 
-    void printPV(int length) {
-        System.out.print("Pv: ");
-        for (int i = 0; i < length; i++) {
-            if (moves[i] != 0) {
-                System.out.printf("%d. %s ", i + 1, toStringMove(moves[i]));
+    void copyPV(MoveList moveList) {
+        moves = new long[218];
+        count = 0;
+        for (int i = 0; i < moveList.moves.length; i++) {
+            if (moveList.moves[i] != 0) {
+                addMove(moveList.moves[i]);
             } else {
                 break;
             }
         }
-        System.out.println();
+    }
+
+    static String toStringPv(long[][] pv) {
+        String output = "";
+        for (int i = 0; i < pv[0].length; i++) {
+            if (pv[0][i] == 0) {
+                break;
+            }
+            output += i + 1 + ". " + MoveList.toStringMove(pv[0][i]) + " ";
+        }
+        return output;
+    }
+
+    static String toStringPvUCI(long[][] pv) {
+        String output = "";
+        for (int i = 0; i < pv[0].length; i++) {
+            if (pv[0][i] == 0) {
+                break;
+            }
+            output += MoveList.toStringMove(pv[0][i]) + " ";
+        }
+        return output;
     }
 
     static int getStartSquare(long move) {
@@ -205,7 +229,7 @@ public class MoveList {
     }
 
     private static void quickSort(long[][] arr) {
-        quickSort(arr, 0, arr.length-1);
+        quickSort(arr, 0, arr.length - 1);
     }
 
     private static void quickSort(long[][] arr, int low, int high) {
@@ -217,7 +241,50 @@ public class MoveList {
     }
 
     public static String toStringMove(long move) {
-        return BitMethods.moveToStringMove(getStartSquare(move)) + BitMethods.moveToStringMove(getEndSquare(move));
+        int promote = getPromotePiece(move);
+        if (promote == 0) {
+            return BitMethods.moveToStringMove(getStartSquare(move)) + BitMethods.moveToStringMove(getEndSquare(move));
+        } else {
+            char promotePiece = ' ';
+            switch (promote) {
+                case 1 -> promotePiece = 'r';
+                case 2 -> promotePiece = 'n';
+                case 3 -> promotePiece = 'b';
+                case 4 -> promotePiece = 'q';
+            }
+            return BitMethods.moveToStringMove(getStartSquare(move)) + BitMethods.moveToStringMove(getEndSquare(move)) + promotePiece;
+        }
+    }
+
+    public long getMoveFromString(String move) {
+        int start = BitMethods.stringMoveToInt(move.substring(0, 2));
+        int end = BitMethods.stringMoveToInt(move.substring(2, 4));
+        if (move.length() == 5) {
+            char promotePiece = move.charAt(4);
+            long promotionKey;
+            if (promotePiece == 'q') {
+                promotionKey = 4;
+            } else if (promotePiece == 'n') {
+                promotionKey = 2;
+            } else if (promotePiece == 'b') {
+                promotionKey = 3;
+            } else {
+                promotionKey = 1;
+            }
+            for (int i = 0; i < count; i++) {
+                if (getStartSquare(moves[i]) == start && getEndSquare(moves[i]) == end && getPromotePiece(moves[i]) == promotionKey) {
+                    return moves[i];
+                }
+            }
+            return -1;
+        } else {
+            for (int i = 0; i < count; i++) {
+                if (getStartSquare(moves[i]) == start && getEndSquare(moves[i]) == end) {
+                    return moves[i];
+                }
+            }
+            return -1;
+        }
     }
 
     public String toString() {

@@ -19,27 +19,32 @@ public class Host {
     int oTwoWins;
     int draws;
 
-    public Host(int port) {
-        ZobristPackage zobristPackage = new ZobristPackage();
+    String position;
 
+    public Host(int port) {
         try {
             serverSocket = new ServerSocket(port);
 
             opponentOne = serverSocket.accept();
             oosOne = new ObjectOutputStream(opponentOne.getOutputStream());
             oisOne = new ObjectInputStream(opponentOne.getInputStream());
-            oosOne.writeObject(zobristPackage);
 
+            oosOne.writeObject("uci");
             oOneName = (String) oisOne.readObject();
+            oosOne.writeObject("isready");
+            oosOne.writeObject("ucinewgame");
             System.out.println("Opponent one connected: " + oOneName);
 
             opponentTwo = serverSocket.accept();
             oosTwo = new ObjectOutputStream(opponentTwo.getOutputStream());
             oisTwo = new ObjectInputStream(opponentTwo.getInputStream());
-            oosTwo.writeObject(zobristPackage);
 
+            oosTwo.writeObject("uci");
             oTwoName = (String) oisTwo.readObject();
+            oosTwo.writeObject("isready");
+            oosTwo.writeObject("ucinewgame");
             System.out.println("Opponent two connected: " + oTwoName);
+
         } catch (IOException e) {
             e.printStackTrace();
         } catch (ClassNotFoundException e) {
@@ -48,13 +53,6 @@ public class Host {
     }
 
     public void startMatch(Board startBoard, Gui gui, int thinkTime, int matches) {
-        try {
-            oosOne.writeInt(thinkTime);
-            oosTwo.writeInt(thinkTime);
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-
         Board board;
         boolean player;
 
@@ -63,18 +61,16 @@ public class Host {
         draws = 0;
 
         for (int i = 0; i < matches; i++) {
-            board = new Board(PosConstants.startPos);
-            getOpponentMove(oosOne, oisOne, board); //reset TTable
-            getOpponentMove(oosTwo, oisTwo, board);
-
-            board = Openings.getRandomStart((int) (Math.random()*6)+1);
+            board = Openings.getRandomStart((int) (Math.random() * 6) + 1);
             Repetition.positionHistory.clear();
+            uciNewGame(oosOne, board.boardToFen());
+            uciNewGame(oosTwo, board.boardToFen());
 
             gui.panel.board = board;
             gui.panel.host = this;
             gui.panel.repaint();
 
-            if (i%2 == 0) {
+            if (i % 2 == 0) {
                 player = true;
                 gui.panel.flip = false;
             } else {
@@ -85,11 +81,11 @@ public class Host {
             while (MoveGeneration.getMoves(board).count > 0 && Repetition.getRepetitionAmount(board.zobristKey, Repetition.historyFlag) < 3) {
 
                 if (board.player == player) {
-                    board = getOpponentMove(oosOne, oisOne, board);
+                    board = getOpponentMoveUCI(oosOne, oisOne, board, thinkTime);
                 } else {
-                    board = getOpponentMove(oosTwo, oisTwo, board);
+                    board = getOpponentMoveUCI(oosTwo, oisTwo, board, thinkTime);
                 }
-                Repetition.addToHistory(board.zobristKey, Repetition.historyFlag);
+                position += " " + MoveList.toStringMove(board.pastMove);
 
                 gui.panel.board = board;
                 gui.panel.host = this;
@@ -113,19 +109,30 @@ public class Host {
         }
     }
 
-    private Board getOpponentMove(ObjectOutputStream oos, ObjectInputStream ois, Board board) {
-        Package out = new Package(board, Repetition.positionHistory);
-        Package in = null;
+    private Board getOpponentMoveUCI(ObjectOutputStream oos, ObjectInputStream ois, Board board, int thinkTime) {
+        Board nextBoard = null;
         try {
-            oos.writeObject(out);
-            in = (Package) ois.readObject();
+            oos.writeObject(position);
+            oos.writeObject("go movetime " + thinkTime);
+            String move = ((String) ois.readObject()).split(" ")[1];
+
+            nextBoard = new Board(board);
+            nextBoard.makeMove(MoveGeneration.getMoves(board).getMoveFromString(move));
         } catch (IOException e) {
             e.printStackTrace();
         } catch (ClassNotFoundException e) {
-            throw new RuntimeException(e);
+            e.printStackTrace();
         }
+        Repetition.addToHistory(nextBoard.zobristKey, Repetition.historyFlag);
+        return nextBoard;
+    }
 
-        Repetition.positionHistory = in.positionHistory;
-        return in.board;
+    private void uciNewGame(ObjectOutputStream oos, String startpos) {
+        try {
+            oos.writeObject("ucinewgame");
+            position = "position " + startpos + " moves";
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
     }
 }

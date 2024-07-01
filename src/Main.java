@@ -3,7 +3,7 @@ public class Main {
         init();
         Board board = new Board(PosConstants.startPos);
         Host host = new Host(1409);
-        Gui gui = new Gui(board, host, 1.2, false);
+        Gui gui = new Gui(board, host, 1, false);
         host.startMatch(board, gui, 50, 100);
     }
 
